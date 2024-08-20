@@ -5,6 +5,7 @@ import torch
 from tqdm import tqdm
 import torch.optim as optim
 from sklearn.metrics import accuracy_score
+from itertools import islice
 
 
 def compute_mean_std(loader):
@@ -65,7 +66,7 @@ class CNN(nn.Module):
         
         return x
     
-def fgsm_attack(model, device, loss, images, labels, epsilon):
+def fgsm_attack(model, loss, images, labels, device, epsilon):
     """ Function to perform a Fast Gradient Sign Method attack on a model.
     Args:
         - model: Model to attack
@@ -83,10 +84,31 @@ def fgsm_attack(model, device, loss, images, labels, epsilon):
 
     attack_images = images + epsilon * images.grad.sign()
     attack_images = torch.clamp(attack_images, 0, 1)
-    attack_images = attack_images.cpu()
     return attack_images
 
-def compare_eval_fgsm(model, test_loader, criterion, device, num_test_batches=32):
+def pgd_attack(model, loss, images, labels, device, eps=0.3, alpha=2/255, num_iter=20):
+    images = images.clone().detach().to(device)
+    labels = labels.clone().detach().to(device)
+
+    # apply small random noise
+    delta = torch.zeros_like(images).uniform_(-eps, eps).to(device)
+    delta.requires_grad = True
+
+    # iteratively modify delta noise
+    for _ in range(num_iter):
+        outputs = model(images + delta)
+        cost = loss(outputs, labels)
+        cost.backward()
+
+        grad = delta.grad.detach()
+        delta.data = delta + alpha * grad.sign()
+        delta.data = torch.clamp(delta, -eps, eps)
+        delta.grad.zero_()
+
+    adv_images = torch.clamp(images + delta, 0, 1).detach()
+    return adv_images
+
+def compare_eval(model, test_loader, criterion, device, attack_function, attack_params, num_test_batches=32):
     """ Function to compare the evaluation of a model on clean and adversarial (FGSM) examples.
     Args:
         - model: Model to evaluate
@@ -94,16 +116,18 @@ def compare_eval_fgsm(model, test_loader, criterion, device, num_test_batches=32
         - criterion: Loss function to use
         - device: Device to use
         - num_test_batches: Number of test batches to evaluate. Default: 32
+        - attack_function: Function to use for the attack
+        - attack_params: Parameters for the attack function (dictionary)
     """
 
-
+    model.eval()
     list_labels = []
     list_orig_pred = []
     list_adv_pred = []
 
-    for idx, (images, labels) in enumerate(test_loader):
+    for idx, (images, labels) in enumerate(islice(tqdm(test_loader, desc="Testing Progress", total=num_test_batches), num_test_batches)):
         images, labels = images.to(device), labels.to(device)
-        adv_images = fgsm_attack(model, device, criterion, images, labels, epsilon=0.1).to(device)
+        adv_images = attack_function(model, criterion, images, labels, device, **attack_params).to(device)
 
         # get original predictions
         orig_outputs = model(images)
@@ -117,15 +141,8 @@ def compare_eval_fgsm(model, test_loader, criterion, device, num_test_batches=32
         list_orig_pred.extend(orig_pred.cpu().numpy())
         list_adv_pred.extend(adv_pred.cpu().numpy())
 
-        if idx % 16 == 0:
-            print(f"[{idx}/{num_test_batches}]")
-        
-        if idx == num_test_batches:
-            break
-
     orig_acc = accuracy_score(y_true=list_labels, y_pred=list_orig_pred)
     adv_acc = accuracy_score(y_true=list_labels, y_pred=list_adv_pred)
 
-    print()
     print(f"Original accuracy: \t{orig_acc:.2f}")
     print(f"Adversarial accuaracy: \t{adv_acc:.2f}")
