@@ -7,6 +7,7 @@ import torch.optim as optim
 from sklearn.metrics import accuracy_score
 from itertools import islice
 import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report
 
 
 def compute_mean_std(loader):
@@ -187,3 +188,38 @@ def plot_images(model, image, label, epsilons, attack_function):
             plt.axis('off')
 
     plt.show()
+
+
+
+
+def evaluate_model(model, data_loader, device, classes):
+    """
+    Evaluate the model on the given data loader and return predictions and true labels.
+
+    Args:
+        model (torch.nn.Module): The model to evaluate.
+        data_loader (torch.utils.data.DataLoader): The DataLoader for the dataset.
+        device (torch.device): The device to run the evaluation on.
+        classes (list): List of class names.
+
+    Returns:
+        all_preds (list): List of all predictions.
+        all_labels (list): List of all true labels.
+    """
+    model.eval()
+    all_preds = []
+    all_labels = []
+
+    # Disable gradient calculation for inference
+    with torch.no_grad():
+        for inputs, labels in tqdm(data_loader, desc="Evaluating"):
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # Print the classification report
+    print(classification_report(all_labels, all_preds, target_names=classes))
+    
+    return all_preds, all_labels
