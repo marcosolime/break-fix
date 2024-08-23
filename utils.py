@@ -6,6 +6,7 @@ from tqdm import tqdm
 import torch.optim as optim
 from sklearn.metrics import accuracy_score
 from itertools import islice
+import matplotlib.pyplot as plt
 
 
 def compute_mean_std(loader):
@@ -86,12 +87,12 @@ def fgsm_attack(model, loss, images, labels, device, epsilon):
     attack_images = torch.clamp(attack_images, 0, 1)
     return attack_images
 
-def pgd_attack(model, loss, images, labels, device, eps=0.3, alpha=2/255, num_iter=20):
+def pgd_attack(model, loss, images, labels, device, epsilon=0.3, alpha=2/255, num_iter=20):
     images = images.clone().detach().to(device)
     labels = labels.clone().detach().to(device)
 
     # apply small random noise
-    delta = torch.zeros_like(images).uniform_(-eps, eps).to(device)
+    delta = torch.zeros_like(images).uniform_(-epsilon, epsilon).to(device)
     delta.requires_grad = True
 
     # iteratively modify delta noise
@@ -102,7 +103,7 @@ def pgd_attack(model, loss, images, labels, device, eps=0.3, alpha=2/255, num_it
 
         grad = delta.grad.detach()
         delta.data = delta + alpha * grad.sign()
-        delta.data = torch.clamp(delta, -eps, eps)
+        delta.data = torch.clamp(delta, -epsilon, epsilon)
         delta.grad.zero_()
 
     adv_images = torch.clamp(images + delta, 0, 1).detach()
@@ -146,3 +147,43 @@ def compare_eval(model, test_loader, criterion, device, attack_function, attack_
 
     print(f"Original accuracy: \t{orig_acc:.2f}")
     print(f"Adversarial accuaracy: \t{adv_acc:.2f}")
+
+
+def plot_images(model, image, label, epsilons, attack_function):
+    """ Plot images with different epsilon values for adversarial attacks.
+    Args:
+    - model
+    - image: batch of original images
+    - epsilons: list of epsilon values
+    - attack_function: function to generate perturbed image"""
+
+    plt.figure(figsize=(15, 7))
+    for i, eps in enumerate(epsilons):
+        plt.subplot(1, len(epsilons), i+1)
+        if eps == 0:
+            original_img = image[0].squeeze(0).detach().cpu().numpy()
+            original_img = np.moveaxis(original_img, 0, -1)
+            original_class_name = train_dataset.classes[label[0]]
+            plt.title("Original\nGround truth: " + original_class_name)
+            plt.imshow(original_img)
+            plt.axis('off')
+        else:
+            image = image.to(device)
+            label = label.to(device)
+            perturbed_image = attack_function(model, criterion, image, label, device,eps)
+            #predict the class of the perturbed image
+            model.eval()
+            with torch.no_grad():
+                output = model(perturbed_image)
+            _, predicted = torch.max(output, 1)
+            #get the class name of first prediction
+            predicted_class_name = train_dataset.classes[predicted[0]]
+            
+            perturbed_image = perturbed_image[0].squeeze(0).detach().cpu().numpy()
+            perturbed_image = np.moveaxis(perturbed_image, 0, -1)
+
+            plt.title(f"Epsilon={eps}\nPredicted: {predicted_class_name}")
+            plt.imshow(perturbed_image)
+            plt.axis('off')
+
+    plt.show()
