@@ -243,6 +243,7 @@ def show_random_images(dataset, mean, std, classes, target_label=None):
     plt.show()
 
 
+
 def train(dataloader, model, optimizer, criterion, device, epoch, num_epochs):
     print(f"Training started.")
     print(f"Epoch {epoch + 1}/{num_epochs}")
@@ -265,7 +266,6 @@ def train(dataloader, model, optimizer, criterion, device, epoch, num_epochs):
     final_loss = running_loss / len(dataloader)
     print(f"Training completed, loss: {final_loss:.4f}")
     return final_loss
-
 
 def test(model, device, dataloader, name):
     print(f'Testing started on {name}.')
